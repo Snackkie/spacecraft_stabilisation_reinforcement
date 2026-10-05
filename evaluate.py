@@ -1,14 +1,3 @@
-"""
-Сравнение регуляторов:
-  * CasADi (постановка предыдущей работы: метод Эйлера, холодный старт);
-  * CasADi (улучшенная постановка: RK4 + тёплый старт от ПД-регулятора);
-  * ПД-регулятор;
-  * PPO без рандомизации и PPO с рандомизацией параметров.
-
-Все регуляторы проверяются на одной и той же «истинной» модели
-(attitude.step: RK4 + нормировка кватерниона).
-Результаты: results/*.png и results/results.json.
-"""
 import json
 import os
 import time
@@ -41,7 +30,6 @@ def pd_warm_start(q0, w0, I=A.I_NOM):
 
 
 def run_all_nominal(agents):
-    """Номинальный сценарий из предыдущей работы."""
     res, traj = {}, {}
 
     print('CasADi, постановка предыдущей работы...', flush=True)
@@ -85,7 +73,6 @@ def plot_nominal(traj):
     ax[0].set_title('Номинальный сценарий: q0 = [0.707, 0.707, 0, 0], ω0 = [0.9, 0.5, 0.5]')
     fig.tight_layout(); fig.savefig(f'{OUT}/nominal_comparison.png', dpi=150); plt.close(fig)
 
-    # Детальный вид последних 40 секунд
     fig, ax = plt.subplots(figsize=(9, 4))
     for name, (qs, ws, ts) in traj.items():
         if name == 'CasADi (Эйлер)':
@@ -99,7 +86,6 @@ def plot_nominal(traj):
 
 
 def cos_angle_curve(qs):
-    """Тот же показатель, что на графике предыдущей работы."""
     lin_v = np.array([0.01, 0.01, 0.005])
     corner = np.array([-0.05, -0.05, -0.05]); offset = np.array([0.05, 0.05, 0])
     pos_c, pos_k = [], []
@@ -144,7 +130,6 @@ def summarize(ms):
 
 
 def run_random(agents, n_fast=200, n_casadi=20):
-    """Случайные начальные условия. CasADi решается заново для каждого."""
     qs0, ws0 = random_initial_conditions(n_fast)
     out = {}
     pd = A.make_pd(*PD_GAINS)
@@ -158,14 +143,14 @@ def run_random(agents, n_fast=200, n_casadi=20):
             U, X, J, t = A.solve_casadi_rk4(qs0[i], ws0[i], init=pd_warm_start(qs0[i], ws0[i]))
             cas.append(A.metrics(*A.simulate(A.casadi_open_loop(U), qs0[i], ws0[i])[:3]))
             times.append(t)
-        except RuntimeError as e:          # IPOPT не сошёлся
+        except RuntimeError as e:
             print('IPOPT failed on IC', i, e, flush=True)
             cas.append(dict(J=np.nan, t_settle=np.nan, final_angle_deg=np.nan,
                             final_rate=np.nan, energy=np.nan, mean_angle_deg=np.nan))
         print('casadi IC', i, round(times[-1] if times else 0, 1), 's', flush=True)
     out['CasADi (RK4)'] = cas
     summary = {k: summarize(v) for k, v in out.items()}
-    # на тех же 20 начальных условиях, что и CasADi
+
     summary_20 = {k: summarize(v[:n_casadi]) for k, v in out.items()}
     summary['CasADi (RK4)']['mean_solve_time'] = float(np.mean(times))
     return summary, summary_20, out
@@ -184,10 +169,6 @@ def perturbed_inertia(n, seed=7):
 
 
 def run_robustness(agents, U_rk4, n=50):
-    """
-    Номинальные начальные условия, но реальный тензор инерции отличается
-    от номинального. Программа CasADi рассчитана по номинальной модели.
-    """
     out = {}
     Is = perturbed_inertia(n)
     out['CasADi (RK4)'] = [A.metrics(*A.simulate(A.casadi_open_loop(U_rk4), I=I)[:3]) for I in Is]
@@ -195,7 +176,6 @@ def run_robustness(agents, U_rk4, n=50):
     for name, ag in agents.items():
         out[name] = [A.metrics(*A.simulate(ag.controller(), I=I)[:3]) for I in Is]
 
-    # зависимость от масштаба инерции (все моменты умножены на k)
     ks = np.linspace(0.7, 1.3, 13)
     scale = {name: [] for name in out}
     for k in ks:
